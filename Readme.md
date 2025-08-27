@@ -1,34 +1,34 @@
 # LpdServiceMonitor
 
-Servicio de Windows que monitorea el estado de **LPDSVC** (Servicio LPD de Windows).  
-Si detecta que está detenido, intenta levantarlo de forma automática, aplicando reglas de ventana de reintentos, cooldown y un flag de mantenimiento.
+Servicio de Windows (C# .NET 8 Worker Service) que **monitoriza el servicio LPDSVC** y lo levanta automáticamente si detecta que está detenido.  
+Incluye ventana de reintentos, “cooldown” tras ráfaga de fallos, *flag* de mantenimiento y registro en **Event Log**.
 
-Windows Service that monitors the state of **LPDSVC** (Windows LPD Service).  
-If it detects that the service is stopped, it will try to restart it automatically, applying retry window rules, cooldown, and a maintenance flag.
-
----
-
-## 📂 Estructura / Structure
-
-```text
-LpdServiceMonitor/  
- ├─ src/                      # Código fuente / Source code (C# .NET 8 Worker Service)  
- │   ├─ Program.cs  
- │   ├─ MonitorService.csproj  
- │   └─ appsettings.json  
- ├─ dist/                     # Binarios publicados / Published binaries (`dotnet publish`)  
- ├─ installer/                # Archivos WiX / WiX files for MSI packaging  
- │   └─ Product.wxs  
- └─ README.md  
-```
+Windows service that **watches LPDSVC** and restarts it when stopped.  
+It applies retry windows, burst cooldown, a maintenance flag, and logs to **Event Log**.
 
 ---
 
-## ⚙️ Configuración / Configuration
+## 📁 Estructura (todo en la **raíz**)
 
-Archivo `appsettings.json` / The `appsettings.json` file:
+~~~text
+.
+├─ appsettings.json
+├─ build.ps1
+├─ LpdServiceMonitor.csproj
+├─ Product.wxs
+├─ Program.cs
+├─ app.ico                 # (opcional) Icono usado por ARP en el MSI
+├─ dist/                   # (salida de publish; se crea al construir)
+└─ LpdServiceMonitor.msi   # (salida de WiX; se crea al construir)
+~~~
 
-```json
+---
+
+## ⚙️ Configuración
+
+Contenido de `appsettings.json`:
+
+~~~json
 {
   "Monitor": {
     "TargetServiceName": "LPDSVC",
@@ -40,89 +40,111 @@ Archivo `appsettings.json` / The `appsettings.json` file:
     "MaintenanceFlagPath": "C:\\windows\\temp\\LPDSVCMONITOR.MAINTENANCE.flag"
   }
 }
-```
+~~~
 
-- **TargetServiceName**: Nombre interno / Internal service name (LPDSVC).  
-- **CheckIntervalMs**: Intervalo de chequeo / Check interval (ms).  
-- **StartTimeoutSeconds**: Tiempo de espera máximo / Max wait time (s).  
-- **MaxRestartsInWindow** y **RestartWindowSeconds**: Control de ráfagas / Burst restart control.  
-- **CooldownAfterBurstSeconds**: Tiempo de enfriamiento / Cooldown after burst.  
-- **MaintenanceFlagPath**: Si existe, no reinicia / If file exists, service won’t restart.  
+- **TargetServiceName**: nombre interno del servicio a vigilar (LPDSVC).  
+- **MaintenanceFlagPath**: si el archivo existe, el monitor **no** intentará reiniciar.  
+- Variables de entorno con prefijo `SM_` pueden *overridear* (ej.: `SM_Monitor__TargetServiceName=XYZ`).
 
 ---
 
-## 🚀 Publicación del ejecutable / Publish the executable
+## 🧰 Requisitos
 
-```powershell
-dotnet publish .\LpdServiceMonitor.csproj `
-  -c Release -r win-x64 `
-  -p:PublishSingleFile=true `
-  -p:SelfContained=true `
-  -o .\dist
-```
+- Windows 10/11 o Windows Server compatible con .NET 8.
+- [.NET SDK 8](https://dotnet.microsoft.com/download).
+- [WiX Toolset 6 (CLI)](https://wixtoolset.org/releases/) instalado como **dotnet tool** (el script lo instala/actualiza).
+- PATH debe incluir `%USERPROFILE%\.dotnet\tools` (para `wix`).
 
 ---
 
-## 📦 Empaquetado MSI con WiX / MSI packaging with WiX
+## 🚀 Construcción y empaquetado (todo en **un comando**)
 
-1. Asegúrate que los binarios estén en `dist/`.  
-   Make sure binaries are in `dist/`.  
+Ejecuta el script desde PowerShell **como administrador**:
 
-2. Construye el MSI con WiX (requiere la extensión `Util`):  
-   Build the MSI with WiX (requires `Util` extension):  
+~~~powershell
+.\build.ps1
+~~~
 
-```powershell
-wix build .\installer\Product.wxs `
-  -ext WixToolset.Util.wixext `
-  -o .\installer\LpdServiceMonitor.msi
-```
+Qué hace el script:
 
----
+1) Limpia artefactos (`bin`, `obj`, `dist`, `.wix`, etc.).  
+2) Instala/actualiza `wix` (dotnet tool) y registra la extensión `WixToolset.Util.wixext`.  
+3) Publica el ejecutable **self-contained**, `win-x64`, **single-file** a `.\dist`.  
+4) Compila el **MSI** con WiX usando `Product.wxs` → `.\LpdServiceMonitor.msi`.
 
-## 🖥️ Instalación / Installation
-
-```powershell
-msiexec /i .\installer\LpdServiceMonitor.msi /L*v install.log
-```
-
-Esto copia los binarios en:  
-This copies binaries to:  
-`C:\Program Files\RoblesAI\LPD Service Monitor`
-
-Servicio creado / Service created:  
-```powershell
-Get-Service LPDSVC-Monitor
-```
+Al finalizar verás: `Listo. Salida: .\LpdServiceMonitor.msi`.
 
 ---
 
-## 🛑 Desinstalación / Uninstall
+## 🖥️ Instalación / Desinstalación
 
-```powershell
-msiexec /x .\installer\LpdServiceMonitor.msi
-```
+Instalar de forma silenciosa con log:
+
+~~~powershell
+msiexec /i .\LpdServiceMonitor.msi /qn /L*v install.log
+~~~
+
+Desinstalar:
+
+~~~powershell
+msiexec /x .\LpdServiceMonitor.msi /qn /L*v uninstall.log
+~~~
+
+> El MSI instala en `C:\Program Files\RoblesAI\LPD Service Monitor\` y crea el servicio  
+> **LpdServiceMonitor** (inicia automático, cuenta `LocalSystem`).
+
+Comprobar estado:
+
+~~~powershell
+Get-Service LpdServiceMonitor
+Get-Service LPDSVC
+~~~
+
+---
+
+## 🧾 Archivos clave (resumen)
+
+- **Program.cs**: host de Worker Service, EventLog, carga de `appsettings.json`, lógica de monitor.  
+- **LpdServiceMonitor.csproj**: .NET 8, `UseWindowsService`, copiado de `appsettings.json` en publish.  
+- **Product.wxs**: definición WiX (1 sólo componente), instala servicio `LpdServiceMonitor`, política de recuperación, ARP metadata, icono `app.ico`.  
+- **build.ps1**: orquesta publish y build del MSI (con extensiones WiX registradas de forma local).  
 
 ---
 
-## 📝 Notas / Notes
+## 🪵 Logs
 
-- El servicio corre como **LocalSystem** / Service runs as **LocalSystem**.  
-- Los eventos se registran en el **Visor de eventos → Application → Source: ServiceMonitor**.  
-  Events are logged under **Event Viewer → Application → Source: ServiceMonitor**.  
-- Crear `C:\windows\temp\LPDSVCMONITOR.MAINTENANCE.flag` pausa la acción de reinicio.  
-  Creating that file will pause restart actions.  
-- Puedes usar **variables de entorno** prefijo `SM_` para overrides.  
-  You can override config using **environment variables** prefixed with `SM_`.  
+- **Event Viewer → Windows Logs → Application**  
+  Source: `LpdServiceMonitor`.  
+- Si ejecutas desde consola (UserInteractive), también emite a stdout.
 
 ---
 
-## 📌 Requisitos / Requirements
+## 🧰 Overrides rápidos
 
-- Windows 10/11 o Windows Server con soporte .NET 8.  
-  Windows 10/11 or Windows Server with .NET 8 support.  
-- [.NET 8 Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) (si no es self-contained).  
-  [.NET 8 Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) (if not self-contained).  
-- [WiX Toolset 6](https://wixtoolset.org/releases/) para generar el MSI.  
-  [WiX Toolset 6](https://wixtoolset.org/releases/) to build the MSI.  
+- Pausar reinicios:
+  - Crear archivo: `C:\windows\temp\LPDSVCMONITOR.MAINTENANCE.flag`
+- Cambiar el servicio objetivo sin editar JSON:
+  - `setx SM_Monitor__TargetServiceName "OtroServicio"`
+
+> Reinicia el servicio **LpdServiceMonitor** tras cambiar variables/archivo para aplicar.
 
 ---
+
+## ❗ Solución de problemas
+
+- **El MSI falla con 1603 / “Service does not exist” en ServiceConfig**  
+  Asegúrate de que `Product.wxs` tiene **un único** `Component` con:
+  - `<File ... KeyPath="yes" />` (el EXE publicado en `.\dist`)  
+  - `<ServiceInstall/>` y `<ServiceControl/>` dentro **del mismo componente**  
+  - `<util:ServiceConfig ServiceName="LpdServiceMonitor" .../>` con el **mismo Name**
+- **No aparece `wix` en PATH**  
+  Abre una nueva consola o añade `%USERPROFILE%\.dotnet\tools` al PATH del usuario.
+- **El servicio objetivo (LPDSVC) no existe**  
+  El monitor se detendrá por seguridad. Instala/activa el rol de **Servicio LPD**.
+
+---
+
+## 📜 Licencia / Contacto
+
+(c) 2025 **Robles.AI** — antonio@robles.ai  
+Uso interno / demostración. Ajusta a tus políticas antes de producción.
