@@ -10,6 +10,7 @@ If it detects that the service is stopped, it will try to restart it automatical
 
 ## 📂 Estructura / Structure
 
+```text
 LpdServiceMonitor/  
  ├─ src/                      # Código fuente / Source code (C# .NET 8 Worker Service)  
  │   ├─ Program.cs  
@@ -19,6 +20,7 @@ LpdServiceMonitor/
  ├─ installer/                # Archivos WiX / WiX files for MSI packaging  
  │   └─ Product.wxs  
  └─ README.md  
+```
 
 ---
 
